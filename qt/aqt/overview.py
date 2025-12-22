@@ -99,6 +99,12 @@ class Overview:
             self.mw.moveToState("review")
             if self.mw.state == "overview":
                 tooltip(tr.studying_no_cards_are_due_yet())
+        elif url == "ai_review":
+            from aqt.ai_reviewer import AIReviewer
+
+            self.mw.reviewer = AIReviewer(self.mw)
+            self.mw.col.startTimebox()
+            self.mw.moveToState("review")
         elif url == "anki":
             print("anki menu")
         elif url == "opts":
@@ -239,6 +245,10 @@ class Overview:
         else:
             buried_new = buried_learning = buried_review = 0
         buried_label = tr.studying_counts_differ()
+        study_button = but(
+            "study", tr.studying_study_now(), id="study", extra=" autofocus"
+        )
+        ai_review_button = but("ai_review", "AI Review", id="ai_review")
 
         def number_row(title: str, klass: str, count: int, buried_count: int) -> str:
             buried = f"{buried_count:+}" if buried_count else ""
@@ -263,7 +273,7 @@ class Overview:
 {number_row(tr.studying_to_review(), "review-count", counts[2], buried_review)}
 </table>
 </td><td align=center>
-{but("study", tr.studying_study_now(), id="study", extra=" autofocus")}</td></tr></table>"""
+{study_button}{ai_review_button}</td></tr></table>"""
 
     _body = """
 <center>
