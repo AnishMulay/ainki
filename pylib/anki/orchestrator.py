@@ -10,4 +10,7 @@ class AIReviewOrchestrator:
         # In a real implementation, use anki.utils.stripHTML
         q = card.q()
         a = card.a()
-        return self.client.evaluate_card(q, a, user_answer)
+        model = card.model()
+        is_cloze = model.get("type") == 1 or "[...]" in q
+        card_mode = "cloze" if is_cloze else "basic"
+        return self.client.evaluate_card(q, a, user_answer, card_mode)

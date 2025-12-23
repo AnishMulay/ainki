@@ -78,10 +78,10 @@ class AIReviewer(Reviewer):
             feedback = f"""
             <div id="ai-feedback">
             <h3>AI Feedback</h3>
-            <b>Summary:</b> {ai_result.mistake_summary}<br>
-            <b>Mistakes:</b> {', '.join(ai_result.wrong_points)}<br>
-            <b>Missing:</b> {', '.join(ai_result.missing_points)}<br>
-            <b>Suggested Rating:</b> {ai_result.suggested_rating}
+            <b>Verdict:</b> {ai_result.verdict}<br>
+            <b>Suggested Rating:</b> {ai_result.suggested_rating}<br>
+            <b>Key Fix:</b> {ai_result.key_fix}<br>
+            <b>Memory Tip:</b> {ai_result.memory_tip}
             </div>
             """
             # Append feedback to the webview
