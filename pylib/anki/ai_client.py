@@ -1,7 +1,9 @@
 # pylib/anki/ai_client.py
 import json
-import urllib.request
+import os
+import textwrap
 import urllib.error
+import urllib.request
 from dataclasses import dataclass
 
 @dataclass
@@ -12,15 +14,29 @@ class AIEvalResult:
     memory_tip: str
     raw_response: str
 
-class OllamaClient:
-    def __init__(self, model: str = "phi4", api_url: str = "http://localhost:11434/api/generate"):
-        self.model = model
-        self.api_url = api_url
+class AIClient:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        api_url_template: str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
+    ):
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        self.api_url_template = api_url_template
 
     def evaluate_card(
         self, front: str, back: str, user_answer: str, card_mode: str = "basic"
     ) -> AIEvalResult:
-        system_prompt = """
+        if not self.api_key:
+            return AIEvalResult(
+                verdict="fail",
+                suggested_rating="Again",
+                key_fix="Missing GEMINI_API_KEY environment variable. Set it in your shell or .env file.",
+                memory_tip="Add GEMINI_API_KEY to your environment and retry.",
+                raw_response="",
+            )
+
+        system_prompt = textwrap.dedent(
+            """
 You are a study-coach grader for interview preparation.
 
 You will be given:
@@ -56,31 +72,46 @@ If the card is cloze-style, accept reasonable synonyms/paraphrases if they prese
 
 Now grade using CARD_FRONT, CARD_BACK, USER_ANSWER.
 """
-        
-        user_prompt = f"""
-        CARD_TYPE: {card_mode}
-        CARD_FRONT: {front}
-        CARD_BACK: {back}
-        USER_ANSWER: {user_answer}
-        """
+        ).strip()
+
+        user_prompt = textwrap.dedent(
+            f"""
+CARD_TYPE: {card_mode}
+CARD_FRONT: {front}
+CARD_BACK: {back}
+USER_ANSWER: {user_answer}
+"""
+        ).strip()
+
+        prompt = f"{system_prompt}\n\n{user_prompt}"
 
         payload = {
-            "model": self.model,
-            "prompt": user_prompt,
-            "system": system_prompt,
-            "stream": False,
-            "format": "json"
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt,
+                        }
+                    ]
+                }
+            ]
         }
 
         try:
+            api_url = self.api_url_template.format(api_key=self.api_key)
             req = urllib.request.Request(
-                self.api_url, 
+                api_url,
                 data=json.dumps(payload).encode('utf-8'),
-                headers={'Content-Type': 'application/json'}
+                headers={'Content-Type': 'application/json'},
+                method="POST",
             )
             with urllib.request.urlopen(req) as response:
                 result = json.loads(response.read().decode('utf-8'))
-                return self._parse_response(result.get("response", ""), user_prompt)
+                try:
+                    content = result["candidates"][0]["content"]["parts"][0]["text"]
+                except (KeyError, IndexError, TypeError) as e:
+                    raise ValueError("Gemini response missing expected fields.") from e
+                return self._parse_response(content, prompt)
                 
         except Exception as e:
             # Handle Flow B: AI Failure
@@ -127,3 +158,7 @@ Now grade using CARD_FRONT, CARD_BACK, USER_ANSWER.
                 memory_tip="Try again or simplify your answer for clarity.",
                 raw_response=raw_text
             )
+
+
+class OllamaClient(AIClient):
+    pass
