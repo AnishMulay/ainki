@@ -2,12 +2,13 @@
 from aqt.reviewer import Reviewer
 from aqt.qt import *
 from aqt.utils import tooltip
-from anki.orchestrator import AIReviewOrchestrator
+from anki.ai_client import AIClient
+from anki.utils import strip_html
 
 class AIReviewer(Reviewer):
     def __init__(self, mw):
         super().__init__(mw)
-        self.orchestrator = AIReviewOrchestrator()
+        self.client = AIClient()
         self.input_field = None
         self.submit_btn = None
         self.ai_feedback_label = None
@@ -46,10 +47,18 @@ class AIReviewer(Reviewer):
         self.submit_btn.setText("Thinking...")
         
         user_ans = self.input_field.toPlainText()
+        question_html = self.card.q()
+        answer_html = self.card.a()
+        cleaned_question = strip_html(question_html)
+        cleaned_answer = strip_html(answer_html)
         
         # Run in background to avoid freezing UI
         self.mw.taskman.run_in_background(
-            lambda: self.orchestrator.evaluate(self.card, user_ans),
+            lambda: self.client.generate_response(
+                cleaned_question,
+                cleaned_answer,
+                user_ans,
+            ),
             lambda future, expected_cid=cid: self.on_evaluation_complete(
                 future, expected_cid
             ),

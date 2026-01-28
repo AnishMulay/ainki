@@ -6,6 +6,49 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
+GEMINI_SYSTEM_INSTRUCTION = textwrap.dedent(
+    """
+You are an AI tutor and grader for interview preparation.
+You will be given three inputs:
+
+FLASHCARD_QUESTION: the prompt on the front of the card
+CORRECT_ANSWER: the ground-truth reference answer
+USER_ANSWER: what the user typed
+
+Your task:
+Compare USER_ANSWER against CORRECT_ANSWER and evaluate whether the user demonstrates the essential understanding needed to answer this correctly in a real technical interview.
+You must output ONLY a valid JSON object with EXACTLY these fields:
+{
+"verdict": "Correct" | "Partially Correct" | "Incorrect",
+"suggested_rating": 1 | 2 | 3 | 4,
+"feedback": "string"
+}
+
+Grading principles (follow strictly):
+- Semantic correctness over wording: Ignore minor typos. Accept reasonable paraphrases.
+- Be strict about factual accuracy: Mark errors or misconceptions as Incorrect.
+- Interview realism: Ask "Would this answer pass in a real interview?"
+- Do not hallucinate: Base evaluation ONLY on CORRECT_ANSWER.
+- Handle edge cases: If USER_ANSWER is empty, "I don't know", or clearly evasive, verdict is Incorrect.
+
+Rating rubric (Anki logic):
+4 (Easy): Fully correct, clear, no meaningful gaps.
+3 (Good): Correct core idea, only minor imprecision.
+2 (Hard): Partially correct, notable missing piece.
+1 (Again): Incorrect or shows misunderstanding.
+
+Feedback rules:
+- Exactly ONE sentence.
+- State the single most important thing they missed or got wrong.
+- Be concise, concrete, and actionable.
+- No praise, no fluff.
+
+Output format rules (critical):
+- Output MUST be valid JSON.
+- No markdown, no commentary, no extra text.
+"""
+).strip()
+
 @dataclass
 class AIEvalResult:
     verdict: str
@@ -26,117 +69,113 @@ class AIClient:
     def evaluate_card(
         self, front: str, back: str, user_answer: str, card_mode: str = "basic"
     ) -> AIEvalResult:
+        return self.generate_response(front, back, user_answer)
+
+    def generate_response(
+        self, question: str, correct_answer: str, user_answer: str
+    ) -> AIEvalResult:
         if not self.api_key:
             return AIEvalResult(
-                verdict="fail",
+                verdict="Incorrect",
                 suggested_rating="Again",
                 key_fix="Missing GEMINI_API_KEY environment variable. Set it in your shell or .env file.",
                 memory_tip="Add GEMINI_API_KEY to your environment and retry.",
                 raw_response="",
             )
 
-        system_prompt = textwrap.dedent(
-            """
-You are a study-coach grader for interview preparation.
-
-You will be given:
-- CARD_FRONT: the prompt/question
-- CARD_BACK: the reference correct answer (ground truth)
-- USER_ANSWER: what the user typed (may be incomplete or informal)
-
-Your goal:
-Evaluate whether USER_ANSWER demonstrates the essential understanding needed to answer this in a real interview.
-
-Grading principles (follow strictly):
-1) Prioritize conceptual correctness over exact wording.
-2) Be fair: if USER_ANSWER captures the core idea with minor omissions, do NOT penalize harshly.
-3) Be strict only for fatal misconceptions: if USER_ANSWER states something incorrect that would mislead an interviewer, mark it clearly.
-4) Do NOT invent missing details beyond CARD_BACK. Base evaluation only on CARD_BACK and reasonable paraphrase equivalence.
-5) Be concise: give at most one key correction and one memory tip.
-
-Output format:
-Return ONLY valid JSON with EXACTLY these keys:
-- verdict: "pass" | "borderline" | "fail"
-- suggested_rating: "Again" | "Hard" | "Good" | "Easy"
-- key_fix: string (1-2 sentences max)
-- memory_tip: string (1 sentence max)
-
-Rating rubric:
-- Easy: pass with strong confidence; clear and complete core idea.
-- Good: pass; core idea correct; only minor omissions or minor imprecision.
-- Hard: borderline; partially correct but needs follow-up or has a notable gap.
-- Again: fail; core misunderstanding or fatal misconception.
-
-Cloze handling:
-If the card is cloze-style, accept reasonable synonyms/paraphrases if they preserve the meaning of the blank. Do not require exact string match unless CARD_BACK is clearly a proper noun/code/token where exactness is essential.
-
-Now grade using CARD_FRONT, CARD_BACK, USER_ANSWER.
-"""
-        ).strip()
-
-        user_prompt = textwrap.dedent(
-            f"""
-CARD_TYPE: {card_mode}
-CARD_FRONT: {front}
-CARD_BACK: {back}
-USER_ANSWER: {user_answer}
-"""
-        ).strip()
-
-        prompt = f"{system_prompt}\n\n{user_prompt}"
+        user_message = (
+            "FLASHCARD_QUESTION: "
+            + question
+            + "\nCORRECT_ANSWER: "
+            + correct_answer
+            + "\nUSER_ANSWER: "
+            + user_answer
+        )
 
         payload = {
+            "system_instruction": {
+                "parts": [
+                    {
+                        "text": GEMINI_SYSTEM_INSTRUCTION,
+                    }
+                ]
+            },
             "contents": [
                 {
                     "parts": [
                         {
-                            "text": prompt,
+                            "text": user_message,
                         }
                     ]
                 }
-            ]
+            ],
         }
 
         try:
             api_url = self.api_url_template.format(api_key=self.api_key)
             req = urllib.request.Request(
                 api_url,
-                data=json.dumps(payload).encode('utf-8'),
-                headers={'Content-Type': 'application/json'},
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
                 method="POST",
             )
             with urllib.request.urlopen(req) as response:
-                result = json.loads(response.read().decode('utf-8'))
+                result = json.loads(response.read().decode("utf-8"))
                 try:
                     content = result["candidates"][0]["content"]["parts"][0]["text"]
                 except (KeyError, IndexError, TypeError) as e:
                     raise ValueError("Gemini response missing expected fields.") from e
-                return self._parse_response(content, prompt)
-                
+                return self._parse_response(content, user_message)
+
         except Exception as e:
             # Handle Flow B: AI Failure
             return AIEvalResult(
-                verdict="fail",
+                verdict="Incorrect",
                 suggested_rating="Again",
                 key_fix=f"AI Error: {str(e)}",
                 memory_tip="Retry in a moment or check your connection.",
-                raw_response=""
+                raw_response="",
             )
 
     def _parse_response(self, raw_text: str, context: str) -> AIEvalResult:
         try:
             data = json.loads(raw_text)
-            verdict = data.get("verdict", "borderline")
-            if verdict not in {"pass", "borderline", "fail"}:
-                verdict = "borderline"
-            suggested_rating = data.get("suggested_rating", "Good")
-            if suggested_rating not in {"Again", "Hard", "Good", "Easy"}:
-                suggested_rating = "Good"
-            key_fix = data.get("key_fix") or "No key fix provided."
-            memory_tip = data.get("memory_tip") or "No memory tip provided."
+            verdict = data.get("verdict", "Partially Correct")
+            verdict_map = {
+                "pass": "Correct",
+                "borderline": "Partially Correct",
+                "fail": "Incorrect",
+            }
+            verdict = verdict_map.get(verdict, verdict)
+            if verdict not in {"Correct", "Partially Correct", "Incorrect"}:
+                verdict = "Partially Correct"
+
+            suggested_rating = data.get("suggested_rating", 3)
+            rating_map = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
+            if isinstance(suggested_rating, str):
+                if suggested_rating in rating_map.values():
+                    rating_label = suggested_rating
+                else:
+                    try:
+                        rating_label = rating_map[int(suggested_rating)]
+                    except (ValueError, TypeError, KeyError):
+                        rating_label = "Good"
+            elif isinstance(suggested_rating, int):
+                rating_label = rating_map.get(suggested_rating, "Good")
+            else:
+                rating_label = "Good"
+
+            feedback = data.get("feedback")
+            if isinstance(feedback, str) and feedback.strip():
+                key_fix = feedback.strip()
+                memory_tip = ""
+            else:
+                key_fix = data.get("key_fix") or "No key fix provided."
+                memory_tip = data.get("memory_tip") or "No memory tip provided."
+
             return AIEvalResult(
                 verdict=verdict,
-                suggested_rating=suggested_rating,
+                suggested_rating=rating_label,
                 key_fix=key_fix,
                 memory_tip=memory_tip,
                 raw_response=raw_text
