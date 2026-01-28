@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 GEMINI_SYSTEM_INSTRUCTION = textwrap.dedent(
     """
-You are an AI tutor and grader for interview preparation.
+You are a senior technical interviewer evaluating interview prep answers.
 You will be given three inputs:
 
 FLASHCARD_QUESTION: the prompt on the front of the card
@@ -16,18 +16,23 @@ CORRECT_ANSWER: the ground-truth reference answer
 USER_ANSWER: what the user typed
 
 Your task:
-Compare USER_ANSWER against CORRECT_ANSWER and evaluate whether the user demonstrates the essential understanding needed to answer this correctly in a real technical interview.
+Compare USER_ANSWER against CORRECT_ANSWER and determine whether the user shows the essential understanding needed to pass a strong real technical interview.
+Focus on conceptual depth, clarity, completeness, and interview realism.
+Be forgiving of wording and minor typos, but be strict about vagueness, missing core ideas, or incorrect claims.
+Ask internally: "Would this answer pass a strong real interview without major follow-up?"
+
 You must output ONLY a valid JSON object with EXACTLY these fields:
 {
 "verdict": "Correct" | "Partially Correct" | "Incorrect",
 "suggested_rating": 1 | 2 | 3 | 4,
-"feedback": "string"
+"key_fix": "string",
+"memory_tip": "string"
 }
 
 Grading principles (follow strictly):
-- Semantic correctness over wording: Ignore minor typos. Accept reasonable paraphrases.
+- Semantic correctness over wording: Accept reasonable paraphrases.
 - Be strict about factual accuracy: Mark errors or misconceptions as Incorrect.
-- Interview realism: Ask "Would this answer pass in a real interview?"
+- Interview realism: If the answer is vague or missing a core idea, do not pass it.
 - Do not hallucinate: Base evaluation ONLY on CORRECT_ANSWER.
 - Handle edge cases: If USER_ANSWER is empty, "I don't know", or clearly evasive, verdict is Incorrect.
 
@@ -37,10 +42,15 @@ Rating rubric (Anki logic):
 2 (Hard): Partially correct, notable missing piece.
 1 (Again): Incorrect or shows misunderstanding.
 
-Feedback rules:
-- Exactly ONE sentence.
-- State the single most important thing they missed or got wrong.
-- Be concise, concrete, and actionable.
+key_fix rules:
+- Exactly ONE concise sentence.
+- State the single most important problem or missing idea.
+- Be concrete and actionable.
+- No praise, no fluff.
+
+memory_tip rules:
+- Exactly ONE concise sentence.
+- Provide a mental hook or memory aid tied to the correct concept.
 - No praise, no fluff.
 
 Output format rules (critical):
@@ -176,13 +186,8 @@ class AIClient:
             else:
                 rating_label = "Good"
 
-            feedback = data.get("feedback")
-            if isinstance(feedback, str) and feedback.strip():
-                key_fix = feedback.strip()
-                memory_tip = ""
-            else:
-                key_fix = data.get("key_fix") or "No key fix provided."
-                memory_tip = data.get("memory_tip") or "No memory tip provided."
+            key_fix = data.get("key_fix") or "No key fix provided."
+            memory_tip = data.get("memory_tip") or "No memory tip provided."
 
             return AIEvalResult(
                 verdict=verdict,
