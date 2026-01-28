@@ -51,13 +51,15 @@ class AIReviewer(Reviewer):
         answer_html = self.card.a()
         cleaned_question = strip_html(question_html)
         cleaned_answer = strip_html(answer_html)
-        
+        is_cloze = self.card.note_type()["type"] == 1
+
         # Run in background to avoid freezing UI
         self.mw.taskman.run_in_background(
             lambda: self.client.generate_response(
                 cleaned_question,
                 cleaned_answer,
                 user_ans,
+                is_cloze=is_cloze,
             ),
             lambda future, expected_cid=cid: self.on_evaluation_complete(
                 future, expected_cid

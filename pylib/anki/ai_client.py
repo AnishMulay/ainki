@@ -72,7 +72,11 @@ class AIClient:
         return self.generate_response(front, back, user_answer)
 
     def generate_response(
-        self, question: str, correct_answer: str, user_answer: str
+        self,
+        question: str,
+        correct_answer: str,
+        user_answer: str,
+        is_cloze: bool = False,
     ) -> AIEvalResult:
         if not self.api_key:
             return AIEvalResult(
@@ -91,6 +95,13 @@ class AIClient:
             + "\nUSER_ANSWER: "
             + user_answer
         )
+        if is_cloze:
+            user_message += (
+                "\n[SYSTEM NOTE: This is a CLOZE (fill-in-the-blank) card. "
+                "The 'USER_ANSWER' generally contains ONLY the missing text, "
+                "while 'CORRECT_ANSWER' contains the full completed sentence. "
+                "Grade 'Correct' if the user's input accurately fills the gap in the QUESTION.]"
+            )
 
         payload = {
             "system_instruction": {
