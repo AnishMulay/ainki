@@ -47,8 +47,8 @@ class AIReviewer(Reviewer):
         self.submit_btn.setText("Thinking...")
         
         user_ans = self.input_field.toPlainText()
-        question_html = self.card.q()
-        answer_html = self.card.a()
+        question_html = self.card.question()
+        answer_html = self.card.answer()
         cleaned_question = strip_html(question_html)
         cleaned_answer = strip_html(answer_html)
         is_cloze = self.card.note_type()["type"] == 1

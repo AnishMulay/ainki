@@ -1,10 +1,13 @@
 # pylib/anki/ai_client.py
 import json
+import logging
 import os
 import textwrap
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 GEMINI_SYSTEM_INSTRUCTION = textwrap.dedent(
     """
@@ -71,7 +74,7 @@ class AIClient:
     def __init__(
         self,
         api_key: str | None = None,
-        api_url_template: str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
+        api_url_template: str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
     ):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self.api_url_template = api_url_template
@@ -159,8 +162,22 @@ class AIClient:
             )
 
     def _parse_response(self, raw_text: str, context: str) -> AIEvalResult:
+        logger.info("AI raw response:\n%s", raw_text)
+        cleaned_text = raw_text.strip()
+        if cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text.strip("`")
+            cleaned_text = cleaned_text.removeprefix("json").strip()
+        if not (cleaned_text.startswith("{") and cleaned_text.endswith("}")):
+            start = cleaned_text.find("{")
+            end = cleaned_text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                cleaned_text = cleaned_text[start : end + 1]
         try:
-            data = json.loads(raw_text)
+            data = json.loads(cleaned_text)
+            logger.info(
+                "AI response (pretty):\n%s",
+                json.dumps(data, indent=2, sort_keys=True),
+            )
             verdict = data.get("verdict", "Partially Correct")
             verdict_map = {
                 "pass": "Correct",
