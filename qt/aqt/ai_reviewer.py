@@ -1,9 +1,16 @@
 # qt/aqt/ai_reviewer.py
+import html
+import json
+import logging
+import traceback
+
 from aqt.reviewer import Reviewer
 from aqt.qt import *
 from aqt.utils import tooltip
 from anki.ai_client import AIClient
 from anki.utils import strip_html
+
+logger = logging.getLogger(__name__)
 
 class AIReviewer(Reviewer):
     def __init__(self, mw):
@@ -71,8 +78,25 @@ class AIReviewer(Reviewer):
             return
         try:
             result = future.result()
+            print(
+                "[AI DEBUG] Backend result before UI handoff:",
+                {
+                    "verdict": getattr(result, "verdict", None),
+                    "suggested_rating": getattr(result, "suggested_rating", None),
+                    "key_fix": getattr(result, "key_fix", None),
+                    "memory_tip": getattr(result, "memory_tip", None),
+                },
+            )
+            print(
+                "[AI DEBUG] Backend raw_response before UI handoff:",
+                getattr(result, "raw_response", None),
+            )
+            logger.info("AI evaluation complete. result=%r", result)
             self._showAnswer(result)
         except Exception as e:
+            print(f"[AI DEBUG] on_evaluation_complete exception: {e}")
+            traceback.print_exc()
+            logger.exception("AI evaluation completion failed")
             tooltip(f"Error: {e}")
             self.submit_btn.setEnabled(True)
 
@@ -86,14 +110,26 @@ class AIReviewer(Reviewer):
 
         # Display AI Feedback
         if ai_result:
+            print(
+                "[AI DEBUG] Preparing UI payload:",
+                {
+                    "verdict": ai_result.verdict,
+                    "suggested_rating": ai_result.suggested_rating,
+                    "key_fix": ai_result.key_fix,
+                    "memory_tip": ai_result.memory_tip,
+                },
+            )
             feedback = f"""
             <div id="ai-feedback">
             <h3>AI Feedback</h3>
-            <b>Verdict:</b> {ai_result.verdict}<br>
-            <b>Suggested Rating:</b> {ai_result.suggested_rating}<br>
-            <b>Key Fix:</b> {ai_result.key_fix}<br>
-            <b>Memory Tip:</b> {ai_result.memory_tip}
+            <b>Verdict:</b> {html.escape(str(ai_result.verdict))}<br>
+            <b>Suggested Rating:</b> {html.escape(str(ai_result.suggested_rating))}<br>
+            <b>Key Fix:</b> {html.escape(str(ai_result.key_fix))}<br>
+            <b>Memory Tip:</b> {html.escape(str(ai_result.memory_tip))}
             </div>
             """
             # Append feedback to the webview
-            self.web.eval(f"document.body.innerHTML += `{feedback}`;")
+            js = f"document.body.insertAdjacentHTML('beforeend', {json.dumps(feedback)});"
+            print("[AI DEBUG] Executing webview JS for AI feedback append.")
+            logger.info("AI feedback JS payload length=%s", len(js))
+            self.web.eval(js)

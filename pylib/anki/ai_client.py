@@ -144,6 +144,8 @@ USER_ANSWER: {user_answer}
             )
             with urllib.request.urlopen(req) as response:
                 raw_body = response.read().decode("utf-8")
+                print("\n[AI DEBUG] Raw GenAI HTTP response body:")
+                print(raw_body)
                 logger.info(
                     "AI response: status=%s length=%s",
                     getattr(response, "status", "unknown"),
@@ -158,9 +160,12 @@ USER_ANSWER: {user_answer}
                     content = result["candidates"][0]["content"]["parts"][0]["text"]
                 except (KeyError, IndexError, TypeError) as e:
                     raise ValueError("Gemini response missing expected fields.") from e
+                print("\n[AI DEBUG] Raw model text (before parsing):")
+                print(content)
                 return self._parse_response(content, prompt_text)
 
         except Exception as e:
+            print(f"[AI DEBUG] Request exception: {e}")
             logger.exception("AI request failed")
             # Handle Flow B: AI Failure
             return AIEvalResult(
@@ -172,6 +177,8 @@ USER_ANSWER: {user_answer}
             )
 
     def _parse_response(self, raw_text: str, context: str) -> AIEvalResult:
+        print("\n[AI DEBUG] Entering _parse_response() with raw_text:")
+        print(raw_text)
         logger.info("AI raw response:\n%s", raw_text)
         cleaned_text = raw_text.strip()
         if cleaned_text.startswith("```"):
@@ -224,6 +231,8 @@ USER_ANSWER: {user_answer}
                 raw_response=raw_text
             )
         except json.JSONDecodeError:
+            print("[AI DEBUG] JSONDecodeError while parsing AI response.")
+            logger.exception("AI response JSON parsing failed. raw_text=%r", raw_text)
             # Handle Flow C: Malformed Output
             return AIEvalResult(
                 verdict="fail",
@@ -233,6 +242,8 @@ USER_ANSWER: {user_answer}
                 raw_response=raw_text
             )
         except Exception as e:
+            print(f"[AI DEBUG] Unexpected parse exception: {e}")
+            logger.exception("AI response format error. raw_text=%r", raw_text)
             return AIEvalResult(
                 verdict="fail",
                 suggested_rating="Again",
