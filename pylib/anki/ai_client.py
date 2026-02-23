@@ -74,7 +74,7 @@ class AIClient:
     def __init__(
         self,
         api_key: str | None = None,
-        api_url_template: str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}",
+        api_url_template: str = "https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={api_key}",
     ):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         self.api_url_template = api_url_template
@@ -100,35 +100,28 @@ class AIClient:
                 raw_response="",
             )
 
-        user_message = (
-            "FLASHCARD_QUESTION: "
-            + question
-            + "\nCORRECT_ANSWER: "
-            + correct_answer
-            + "\nUSER_ANSWER: "
-            + user_answer
-        )
+        prompt_text = GEMINI_SYSTEM_INSTRUCTION
         if is_cloze:
-            user_message += (
-                "\n[SYSTEM NOTE: This is a CLOZE (fill-in-the-blank) card. "
-                "The 'USER_ANSWER' generally contains ONLY the missing text, "
-                "while 'CORRECT_ANSWER' contains the full completed sentence. "
-                "Grade 'Correct' if the user's input accurately fills the gap in the QUESTION.]"
+            prompt_text += (
+                "\n\n[IMPORTANT NOTE: This is a CLOZE (fill-in-the-blank) card. "
+                "The 'CORRECT_ANSWER' will be a full sentence. The 'USER_ANSWER' "
+                "will be a text fragment. If the fragment correctly fills the blank "
+                "in the context of the question, mark it as 'Correct'.]"
             )
+        prompt_text += f"""
+
+***
+FLASHCARD_QUESTION: {question}
+CORRECT_ANSWER: {correct_answer}
+USER_ANSWER: {user_answer}
+"""
 
         payload = {
-            "system_instruction": {
-                "parts": [
-                    {
-                        "text": GEMINI_SYSTEM_INSTRUCTION,
-                    }
-                ]
-            },
             "contents": [
                 {
                     "parts": [
                         {
-                            "text": user_message,
+                            "text": prompt_text,
                         }
                     ]
                 }
@@ -137,6 +130,12 @@ class AIClient:
 
         try:
             api_url = self.api_url_template.format(api_key=self.api_key)
+            logger.info("AI request: model_url=%s", self.api_url_template.split("?")[0])
+            logger.info("AI request: is_cloze=%s", is_cloze)
+            logger.info(
+                "AI request: prompt_preview=%s",
+                prompt_text[:1000].replace("\n", "\\n"),
+            )
             req = urllib.request.Request(
                 api_url,
                 data=json.dumps(payload).encode("utf-8"),
@@ -144,14 +143,25 @@ class AIClient:
                 method="POST",
             )
             with urllib.request.urlopen(req) as response:
-                result = json.loads(response.read().decode("utf-8"))
+                raw_body = response.read().decode("utf-8")
+                logger.info(
+                    "AI response: status=%s length=%s",
+                    getattr(response, "status", "unknown"),
+                    len(raw_body),
+                )
+                logger.info(
+                    "AI response: body_preview=%s",
+                    raw_body[:1000].replace("\n", "\\n"),
+                )
+                result = json.loads(raw_body)
                 try:
                     content = result["candidates"][0]["content"]["parts"][0]["text"]
                 except (KeyError, IndexError, TypeError) as e:
                     raise ValueError("Gemini response missing expected fields.") from e
-                return self._parse_response(content, user_message)
+                return self._parse_response(content, prompt_text)
 
         except Exception as e:
+            logger.exception("AI request failed")
             # Handle Flow B: AI Failure
             return AIEvalResult(
                 verdict="Incorrect",
